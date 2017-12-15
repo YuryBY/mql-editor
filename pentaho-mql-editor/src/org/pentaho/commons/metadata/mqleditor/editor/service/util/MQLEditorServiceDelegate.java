@@ -17,16 +17,6 @@
 
 package org.pentaho.commons.metadata.mqleditor.editor.service.util;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
-import java.util.TreeSet;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-
 import org.apache.commons.lang.NotImplementedException;
 import org.pentaho.commons.metadata.mqleditor.AggType;
 import org.pentaho.commons.metadata.mqleditor.ColumnType;
@@ -56,7 +46,6 @@ import org.pentaho.metadata.query.model.Constraint;
 import org.pentaho.metadata.query.model.Parameter;
 import org.pentaho.metadata.query.model.util.QueryXmlHelper;
 import org.pentaho.metadata.repository.IMetadataDomainRepository;
-import org.pentaho.pms.factory.CwmSchemaFactoryInterface;
 import org.pentaho.pms.mql.MQLQuery;
 import org.pentaho.pms.mql.MQLQueryImpl;
 import org.pentaho.pms.mql.OrderBy;
@@ -69,6 +58,16 @@ import org.pentaho.pms.schema.SchemaMeta;
 import org.pentaho.pms.schema.concept.types.aggregation.AggregationSettings;
 import org.pentaho.pms.schema.concept.types.datatype.DataTypeSettings;
 import org.pentaho.pms.util.UniqueList;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 
@@ -84,10 +83,7 @@ public class MQLEditorServiceDelegate {
 
   private String locale = Locale.getDefault().toString();
 
-  private List<MqlDomain> domains = new ArrayList<MqlDomain>();
-  private Set<String> domainNames = new TreeSet<String>();
-
-  private CwmSchemaFactoryInterface factory;
+  private Map<String, MqlDomain> domains = new ConcurrentHashMap<>();
 
   private IMetadataDomainRepository domainRepository;
 
@@ -102,7 +98,7 @@ public class MQLEditorServiceDelegate {
     this.domainRepository = domainRepository;
 
     for ( String id : domainRepository.getDomainIds() ) {
-      if ( !domainNames.contains( id ) ) {
+      if ( !domains.containsKey( id ) ) {
         // add the domain
         addThinDomain( id );
       }
@@ -118,16 +114,15 @@ public class MQLEditorServiceDelegate {
 
   public List<MqlDomain> refreshMetadataDomains() {
     domains.clear();
-    domainNames.clear();
     if ( domainRepository != null ) {
       for ( String id : domainRepository.getDomainIds() ) {
-        if ( !domainNames.contains( id ) ) {
+        if ( !domains.containsKey( id ) ) {
           // add the domain
           addThinDomain( id );
         }
       }
     }
-    return domains;
+    return Collections.unmodifiableList( new ArrayList<>( domains.values() ) );
   }
 
   public void addThinDomain( String id ) {
@@ -139,8 +134,7 @@ public class MQLEditorServiceDelegate {
         Model myModel = createModel( model );
         domain.getModels().add( myModel );
       }
-      domains.add( domain );
-      domainNames.add( domain.getName() );
+      domains.put( domain.getName(), domain );
     } catch ( Exception e ) {
       e.printStackTrace();
       // log error
@@ -354,7 +348,7 @@ public class MQLEditorServiceDelegate {
   }
 
   public List<MqlDomain> getMetadataDomains() {
-    return domains;
+    return Collections.unmodifiableList( new ArrayList<>( domains.values() ) );
   }
 
   public MqlDomain getDomainByName( String name ) {
@@ -368,7 +362,7 @@ public class MQLEditorServiceDelegate {
     if ( !name.endsWith( ".xmi" ) ) {
       return matchLegacyDomainName( name );
     }
-    for ( MqlDomain domain : domains ) {
+    for ( MqlDomain domain : domains.values() ) {
       if ( domain.getName().equals( name ) ) {
         return domain;
       }
@@ -378,7 +372,7 @@ public class MQLEditorServiceDelegate {
   }
 
   private MqlDomain matchLegacyDomainName( String name ) {
-    for ( MqlDomain domain : domains ) {
+    for ( MqlDomain domain : domains.values() ) {
       if ( domain.getName().contains( name ) ) {
         return domain;
       }
@@ -599,10 +593,13 @@ public class MQLEditorServiceDelegate {
       }
     }
 
-    for ( MqlModel m : domains.get( 0 ).getModels() ) {
-      if ( m.getId().equals( fatQ.getModel().getId() ) ) {
-        query.setModel( (Model) m );
-        query.setDomain( (Domain) domains.get( 0 ) );
+    List<MqlDomain> domainsValues = new ArrayList( domains.values() );
+    for ( MqlDomain domain : domainsValues ) {
+      for ( MqlModel m : domain.getModels() ) {
+        if ( m.getId().equals( fatQ.getModel().getId() ) ) {
+          query.setModel( (Model) m );
+          query.setDomain( (Domain) domain );
+        }
       }
     }
 
@@ -768,7 +765,7 @@ public class MQLEditorServiceDelegate {
 
     MqlDomain selectedDomain = null;
     MqlModel selectedModel = null;
-    for ( MqlDomain d : this.domains ) {
+    for ( MqlDomain d : this.domains.values() ) {
       if ( d.getName().equals( domainId ) ) {
         selectedDomain = d;
         break;
