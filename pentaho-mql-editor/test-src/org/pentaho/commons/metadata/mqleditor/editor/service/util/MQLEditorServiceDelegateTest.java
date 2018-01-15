@@ -20,7 +20,20 @@ package org.pentaho.commons.metadata.mqleditor.editor.service.util;
 import org.junit.Assert;
 import org.junit.Test;
 import org.pentaho.commons.metadata.mqleditor.AggType;
+import org.pentaho.metadata.model.Domain;
 import org.pentaho.metadata.model.concept.types.AggregationType;
+import org.pentaho.metadata.model.concept.types.LocalizedString;
+import org.pentaho.metadata.repository.IMetadataDomainRepository;
+import org.pentaho.metadata.repository.InMemoryMetadataDomainRepository;
+
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 public class MQLEditorServiceDelegateTest {
   @Test
@@ -42,5 +55,54 @@ public class MQLEditorServiceDelegateTest {
     Assert.assertEquals( mqlESD.convertNewThinAggregationType( AggregationType.SUM ), AggType.SUM );
 
     Assert.assertEquals( mqlESD.convertNewThinAggregationType( AggregationType.NONE ), AggType.NONE );
+  }
+
+  @Test
+  public void testConcurrency() throws Exception {
+    String domainIdPrefix = "id";
+    //init repo
+    IMetadataDomainRepository repo = new InMemoryMetadataDomainRepository();
+    for ( int i = 0; i < 50; i++ ) {
+      Domain domain = new Domain();
+      LocalizedString name = new LocalizedString();
+      name.setString( "US", String.valueOf( i + 1 ) );
+      domain.setId( domainIdPrefix + String.valueOf( i + 1 ) );
+      domain.setName( name );
+      repo.storeDomain( domain, false );
+    }
+
+    MQLEditorServiceDelegate service = new MQLEditorServiceDelegate( repo );
+
+    int poolSize = 10;
+    ExecutorService executorService = Executors.newFixedThreadPool( poolSize );
+
+    ByteArrayOutputStream outContent = new ByteArrayOutputStream();
+    //redirect the System-output to a variable to use it for test purposes
+    //System.setErr( new PrintStream( outContent ) );
+    List<Future<Boolean>> results = new ArrayList<>();
+    for ( int i = 0; i < poolSize; i++ ) {
+      results.add( executorService.submit( new Callable<Boolean>() {
+        public Boolean call() throws Exception {
+          int size = service.getMetadataDomains().size();
+          for ( int i = 0; i < size; i++ ) {
+            try {
+              String id = domainIdPrefix + String.valueOf( i + 1 );
+              service.getDomainByName( id );
+              service.addThinDomain( id );
+              //System.out.println(String.valueOf( i + 1 ));
+            } catch ( Exception e ) {
+              return false;
+            }
+          }
+          return true;
+        }
+      } ) );
+    }
+    for ( Future<Boolean> result : results ) {
+      Assert.assertTrue( result.get() );
+    }
+    executorService.shutdown();
+
+    //Assert.assertTrue( outContent.toString(), outContent.size() == 0 );
   }
 }
